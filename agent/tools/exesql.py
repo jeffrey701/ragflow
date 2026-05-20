@@ -259,7 +259,16 @@ class ExeSQL(ToolBase, ABC):
                     sql_res.append({"content": "For security reasons, INSERT, UPDATE, and DELETE statements are not supported."})
                     formalized_content.append("For security reasons, INSERT, UPDATE, and DELETE statements are not supported.")
                     continue
-                cursor.execute(single_sql)
+                try:
+                    cursor.execute(single_sql)
+                except Exception as exc:
+                    # Surface a readable SQL error instead of letting the raw driver
+                    # exception tuple — e.g. pyodbc's ('42S02', '[42S02] [SQL Server]
+                    # ...') repr — bubble out of the node. See #14737.
+                    err_msg = "SQL execution failed: " + self._friendly_sql_error(exc)
+                    sql_res.append({"content": err_msg})
+                    formalized_content.append(err_msg)
+                    continue
                 if cursor.rowcount == 0:
                     sql_res.append({"content": "No record in the database!"})
                     break
@@ -287,6 +296,23 @@ class ExeSQL(ToolBase, ABC):
         self.set_output("json", sql_res)
         self.set_output("formalized_content", "\n\n".join(formalized_content))
         return self.output("formalized_content")
+
+    @staticmethod
+    def _friendly_sql_error(exc: Exception) -> str:
+        """Extract a human-readable message from a DB-API driver exception.
+
+        pyodbc / pymysql expose ``exc.args = (sqlstate_or_errno, message)``;
+        psycopg2 exposes ``exc.diag.message_primary`` (and ``exc.pgerror``).
+        Falling back to ``str(exc)`` would print the raw tuple repr — see
+        the issue body for the unfriendly form this produces.
+        """
+        args = getattr(exc, "args", None) or ()
+        if len(args) >= 2 and isinstance(args[1], str) and args[1].strip():
+            return args[1].strip()
+        pg_error = getattr(exc, "pgerror", None)
+        if isinstance(pg_error, str) and pg_error.strip():
+            return pg_error.strip()
+        return str(exc).strip() or exc.__class__.__name__
 
     def thoughts(self) -> str:
         return "Query sent—waiting for the data."

@@ -144,12 +144,18 @@ const FloatingChatWidget = () => {
     hasError,
   } = (isFromAgent ? useSendNextSharedMessage : useSendSharedMessage)(() => {});
 
-  // Sync our local input with the hook's value when needed
+  // Sync the hook's value into our local input only when the local input is
+  // empty (e.g. a preset sample question is injected externally). Without the
+  // `!inputValue` guard, the previous-response hookValue was still set when
+  // the user started a new message; the effect kept overwriting each typed
+  // character with the stale hookValue on the next render, which is why the
+  // textarea lost focus after typing one character. See #14408.
   useEffect(() => {
-    if (hookValue && hookValue !== inputValue) {
+    if (hookValue && !inputValue) {
       setInputValue(hookValue);
     }
-  }, [hookValue, inputValue]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hookValue]);
 
   const { data } = (
     isFromAgent ? useFetchExternalAgentInputs : useFetchExternalChatInfo
